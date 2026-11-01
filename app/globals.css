@@ -614,3 +614,57 @@ body {
 	background: #dce5d3;
 	color: #24382c;
 }
+
+/* Responsive frame: the visual viewport keeps the composer above mobile
+   keyboards. Desktop geometry and Electron title-bar behavior stay intact. */
+.lh-app-shell {
+	height: var(--lh-viewport-height, 100dvh);
+	min-width: 0;
+	overflow: hidden;
+}
+.lh-app-shell main > .h-dvh { height: 100%; }
+.lh-prose { overflow-wrap: anywhere; }
+/* Keyboard focus is visible without adding rings to pointer interactions. */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 3px;
+}
+@media (max-width: 767px) {
+	.lh-graph-toolbar { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+	.lh-graph-toolbar > div { max-width: 100%; flex-wrap: wrap; }
+	.lh-settings-dialog {
+		width: calc(100vw - 1rem);
+		max-width: calc(100vw - 1rem);
+		height: calc(var(--lh-viewport-height, 100dvh) - 1rem);
+		max-height: calc(var(--lh-viewport-height, 100dvh) - 1rem);
+	}
+	.lh-settings-row {
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		padding-block: 0.5rem;
+	}
+	.lh-settings-row > :first-child { flex: 1 1 11rem; }
+	.lh-settings-row > :not(:first-child) { max-width: 100%; min-width: 0; }
+	.lh-top-bar { gap: 0.5rem; }
+	.lh-top-bar .font-title { font-size: var(--text-xl); }
+	.lh-dock-bottom { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+	.lh-dock-shell {
+		max-height: calc(var(--lh-viewport-height, 100dvh) - 7rem);
+		overflow-y: auto;
+		overscroll-behavior: contain;
+	}
+	/* Keep controls readable and avoid iOS focus zoom without disabling zoom. */
+	input:not([type="range"]):not([type="checkbox"]), textarea, select { font-size: 16px; }
+	[data-lh-sidebar] {
+		height: var(--lh-viewport-height, 100dvh);
+		padding-bottom: env(safe-area-inset-bottom);
+		background: var(--background);
+	}
+	[data-lh-sidebar] .overflow-y-auto { min-height: 0; overscroll-behavior: contain; }
+	[data-testid="settings-nav"] button { min-height: 40px; }
+	[data-testid="stats-bar"] { padding-inline: 0; }
+}
+@media (pointer: coarse) {
+	button:not([role="switch"]):not([data-testid^="plan-"]) { min-height: 40px; }
+	.lh-prose .opacity-0 { opacity: 1; }
+}

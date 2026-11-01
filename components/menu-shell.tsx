@@ -40,8 +40,7 @@ import { createPortal } from "react-dom";
 const GAP = 4; // anchor edge → menu (the bespoke shells' settled 4px)
 const EDGE = 8; // viewport floor the menu never enters
 const CAP_VH = 0.6; // 60vh — the graph pattern's cap
-const MIN_USABLE = 96; // floor: a shorter cap is an unusable sliver; the
-// cap then overflows the edge instead of crushing the menu
+const MIN_USABLE = 96; // preferred floor, bounded by the viewport on small screens
 
 /** A MenuShell mounted = a dropdown open (fix wave, owner ruling:
  *  the settings dialog's content column locks while any menu is down —
@@ -76,6 +75,7 @@ export function computeMenuPlacement(
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	contentWidth = 0,
 ): MenuPlacement {
 	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE;
@@ -90,11 +90,18 @@ export function computeMenuPlacement(
 		}
 	}
 	const avail = side === "down" ? availDown : availUp;
-	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
-	const horizontal: Record<string, number> =
+	const maxHeight = Math.max(0, Math.min(viewport.height - 2 * EDGE, Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail))));
+	let horizontal: Record<string, number> =
 		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	if (contentWidth > 0) {
+		const width = Math.min(contentWidth, viewport.width - 2 * EDGE);
+		const desired = align === "right" ? rect.right - width : rect.left;
+		horizontal = { left: Math.max(EDGE, Math.min(desired, viewport.width - EDGE - width)) };
+	}
 	const vertical: Record<string, number> =
-		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
+		side === "down"
+			? { top: Math.max(EDGE, Math.min(rect.bottom + GAP, viewport.height - EDGE - maxHeight)) }
+			: { bottom: Math.max(EDGE, Math.min(viewport.height - rect.top + GAP, viewport.height - EDGE - maxHeight)) };
 	return { side, style: { ...horizontal, ...vertical }, maxHeight };
 }
 
@@ -204,6 +211,7 @@ export function MenuShell({
 				menuRef.current.scrollHeight,
 				preferredSide,
 				align,
+				menuRef.current.getBoundingClientRect().width,
 			);
 			setPlaced(p);
 		};
@@ -230,7 +238,7 @@ export function MenuShell({
 				ref={menuRef}
 				data-testid={testid}
 				data-lh-menu=""
-				style={{ position: "fixed", left: 0, top: 0, visibility: "hidden" }}
+				style={{ position: "fixed", left: 0, top: 0, visibility: "hidden", minWidth: 0, maxWidth: "calc(100vw - 16px)" }}
 				className={menuClass}
 			>
 				{children}
@@ -245,7 +253,7 @@ export function MenuShell({
 			data-lh-menu=""
 			tabIndex={-1}
 			onKeyDown={onBodyKeyDown}
-			style={{ position: "fixed", zIndex: 60, ...placed.style, maxHeight: placed.maxHeight, overflowY: "auto" }}
+			style={{ position: "fixed", zIndex: 60, ...placed.style, minWidth: 0, maxWidth: "calc(100vw - 16px)", maxHeight: placed.maxHeight, overflowY: "auto", overscrollBehavior: "contain" }}
 			// The body is the arrow machine's focus home (input-less menus
 			// land focus here on open) — the focus STAYS, but the browser's
 			// default blue ring around it must not draw (owner, polish

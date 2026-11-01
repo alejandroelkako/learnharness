@@ -22,12 +22,12 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { useMobileLayout } from "@/components/use-mobile-layout";
 
 /**
- * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
- * sits inline next to the content and can stay open while working in a
- * session. Open state persists across pages (provider lives in the root
- * layout) and across reloads (localStorage).
+ * Desktop navigation stays inline and persists its open preference. Small
+ * browser screens use a modal drawer with an independent, transient open
+ * state, so mobile navigation never overwrites the desktop preference.
  */
 
 const STORAGE_KEY = "lh:sidebar-open";
@@ -81,9 +81,11 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+const SidebarContext = createContext<{ open: boolean; mobile: boolean; toggle: () => void; closeMobile: () => void }>({
 	open: false,
+	mobile: false,
 	toggle: () => {},
+	closeMobile: () => {},
 });
 
 export function useSidebar() {
@@ -91,6 +93,23 @@ export function useSidebar() {
 }
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
+	const smallScreen = useMobileLayout();
+	const mobile = smallScreen && !IS_ELECTRON;
+	const [mobileOpen, setMobileOpen] = useState(false);
+	const closeMobile = useCallback(() => setMobileOpen(false), []);
+	const pathname = usePathname();
+	useEffect(() => { closeMobile(); }, [pathname, mobile, closeMobile]);
+	useEffect(() => {
+		if (!mobile) return;
+		const viewport = window.visualViewport;
+		const resize = () => document.documentElement.style.setProperty("--lh-viewport-height", `${viewport?.height ?? window.innerHeight}px`);
+		resize();
+		viewport?.addEventListener("resize", resize);
+		return () => {
+			viewport?.removeEventListener("resize", resize);
+			document.documentElement.style.removeProperty("--lh-viewport-height");
+		};
+	}, [mobile]);
 	useEffect(() => {
 		const bridge = window.lh?.chatgpt;
 		if (!bridge) return;
@@ -145,6 +164,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	const toggle = useCallback(() => {
+		if (mobile) {
+			setMobileOpen((v) => !v);
+			return;
+		}
 		// Opening while narrow (auto-closed, or the user's own closed-at-
 		// narrow): ask the shell to widen to the threshold — the resize
 		// listener flips `narrow` and the sidebar appears. The preference
@@ -160,7 +183,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
-	}, [narrow, open]);
+	}, [narrow, open, mobile]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -176,9 +199,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, [toggle]);
 
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
+		<SidebarContext.Provider value={{ open: mobile ? mobileOpen : open && !narrow, mobile, toggle, closeMobile }}>
 			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+			<div className={cn("lh-app-shell flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -387,7 +410,34 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, mobile, toggle, closeMobile } = useSidebar();
+	const sidebarRef = useRef<HTMLElement>(null);
+	useEffect(() => {
+		if (!mobile || !open) return;
+		const previous = document.activeElement as HTMLElement | null;
+		const frame = requestAnimationFrame(() => sidebarRef.current?.querySelector<HTMLElement>("button")?.focus());
+		const onKey = (event: KeyboardEvent) => {
+			if (event.defaultPrevented || document.querySelector('[data-lh-menu], [data-testid="settings-dialog"]')) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				closeMobile();
+			}
+			if (event.key !== "Tab") return;
+			const targets = Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]') ?? [])
+				.filter((el) => el.getClientRects().length > 0 && el.tabIndex >= 0);
+			const first = targets[0];
+			const last = targets.at(-1);
+			if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+			else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+		};
+		document.addEventListener("keydown", onKey);
+		return () => {
+			cancelAnimationFrame(frame);
+			document.removeEventListener("keydown", onKey);
+			previous?.focus({ preventScroll: true });
+		};
+	}, [mobile, open, closeMobile]);
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -408,8 +458,9 @@ function SessionsSidebar() {
 	   message is sent (and that message becomes its title). Search: a
 	   client-side filter over the poll snapshot — no server round trip. */
 	const newSession = useCallback(() => {
+		closeMobile();
 		router.push("/chat/new");
-	}, [router]);
+	}, [router, closeMobile]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
@@ -644,7 +695,14 @@ function SessionsSidebar() {
 
 	return (
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			ref={sidebarRef}
+			data-lh-sidebar=""
+			role={mobile && open ? "dialog" : undefined}
+			aria-modal={mobile && open ? true : undefined}
+			aria-label="Session navigation"
+			inert={!open}
+			onClickCapture={(event) => { if ((event.target as HTMLElement).closest("a")) closeMobile(); }}
+			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", mobile && "fixed inset-y-0 left-0 z-40 shadow-xl", open ? "w-72" : "w-0")}
 			aria-hidden={!open}
 		>
 			<div className="flex h-full w-72 flex-col border-r bg-background">
@@ -827,6 +885,7 @@ function SessionsSidebar() {
 									kbdSelected={i === kbdIndex}
 									onOpen={() => {
 										setKbdIndex(null);
+										closeMobile();
 										router.push(`/chat/${c.id}`);
 									}}
 									onContextMenu={(e) => openContext(e, c)}
@@ -850,7 +909,7 @@ function SessionsSidebar() {
 						<Hint label="Settings" action="open-settings" side="right">
 							<button
 								type="button"
-								onClick={() => openSettings()}
+								onClick={() => { closeMobile(); openSettings(); }}
 								data-testid="settings-entry"
 								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
@@ -941,10 +1000,12 @@ function SessionsSidebar() {
 
 /** The app frame: sidebar inline + content. Rendered once in the root layout. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const { mobile, open, closeMobile } = useSidebar();
 	return (
 		<SettingsDialogProvider>
+			{mobile && open && <button type="button" tabIndex={-1} aria-label="Close navigation" onClick={closeMobile} className="fixed inset-0 z-30 bg-foreground/20 backdrop-blur-sm" />}
 			<SessionsSidebar />
-			<main className="min-w-0 flex-1">{children}</main>
+			<main inert={mobile && open} className="h-full min-h-0 min-w-0 flex-1">{children}</main>
 			{/* The single document-level keydown listener (keyboard wave A) —
 			    after the content in the tree, but it's window-level so order only
 			    matters for the events it dispatches, never for DOM priority. */}

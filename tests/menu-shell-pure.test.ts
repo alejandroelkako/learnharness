@@ -61,11 +61,12 @@ describe("computeMenuPlacement — cap + position", () => {
 		assert.equal(p.maxHeight, 248);
 	});
 
-	it("never crushes below the usability floor, even against a tiny side", () => {
+	it("keeps menus inside a short viewport even below the preferred usability floor", () => {
 		// Anchor 30px above the bottom, both sides thin: capped to the
-		// floor, not a 2px sliver — the cap overflows rather than crushes.
+		// viewport: scroll the menu instead of leaving actions off-screen.
 		const p = computeMenuPlacement(rect(30, 60), viewport(90), 300, "down", "right");
-		assert.equal(p.maxHeight, 96);
+		assert.equal(p.maxHeight, 74);
+		assert.equal(p.style.top, 8);
 	});
 
 	it("up-side menus anchor their BOTTOM above the anchor's top", () => {
@@ -78,5 +79,17 @@ describe("computeMenuPlacement — cap + position", () => {
 		const p = computeMenuPlacement(rect(400, 440), viewport(800), 300, "down", "left");
 		assert.equal(p.style.left, 100);
 		assert.ok(!("right" in p.style));
+	});
+});
+
+describe("mobile menu containment", () => {
+	it("fits a wide right-aligned menu beside an edge trigger", () => {
+		const p = computeMenuPlacement({ top: 500, bottom: 540, left: 10, right: 44 }, { width: 320, height: 600 }, 400, "up", "right", 384);
+		assert.equal(p.style.left, 8);
+		assert.ok(p.maxHeight <= 584);
+	});
+	it("pulls a left-aligned menu back from the right edge", () => {
+		const p = computeMenuPlacement({ top: 40, bottom: 80, left: 280, right: 310 }, { width: 320, height: 600 }, 200, "down", "left", 240);
+		assert.equal(p.style.left, 72);
 	});
 });
