@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { createWebTools } from "../tools/web.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
 import type { SearchProvider } from "../../core/search.ts";
@@ -94,16 +94,43 @@ export interface ResearcherRunOptions {
 export async function runResearcherAgent(prompt: string, opts: ResearcherRunOptions = {}): Promise<string> {
 	const tools = Object.values(createWebTools(opts.search ?? (() => null)));
 	if (opts.pdfDir) tools.push(...Object.values(createPdfReadTools(opts.pdfDir)));
-	const { text } = await runSubagent(tools, {
-		role: "researcher",
-		prompt,
+	const maxResearchTurns = 12;
+	const startedAt = Date.now();
+	const runOptions = {
+		role: "researcher" as const,
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
-		maxTurns: 12,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
 		onToolStart: opts.onToolStart,
 		chatId: opts.chatId,
+	};
+	const result = await runSubagent(tools, {
+		...runOptions,
+		prompt,
+		maxTurns: maxResearchTurns,
+	});
+	const turns = result.newMessages.filter((m) => m.role === "assistant") as AssistantMessage[];
+	if (turns.length < maxResearchTurns || turns.at(-1)?.stopReason !== "toolUse") return result.text;
+
+	// The safety limit can end on a tool call, before a brief exists. Keep
+	// all gathered evidence and allow exactly one final call without tools.
+	// Text accompanying that last tool call is progress, not the deliverable.
+	opts.abortSignal?.throwIfAborted();
+	const { text } = await runSubagent([], {
+		...runOptions,
+		maxTurns: 1,
+		messages: [
+			{ role: "user", content: prompt, timestamp: startedAt },
+			...result.newMessages,
+			{
+				role: "user",
+				content: "The research tool-call budget is exhausted. Tools are now unavailable. " +
+					"Write your final brief in the required format using only the evidence already gathered. " +
+					"Cite the available sources and state any remaining uncertainty or gaps; do not invent findings.",
+				timestamp: Date.now(),
+			},
+		],
 	});
 	return text;
 }
