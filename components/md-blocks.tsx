@@ -37,6 +37,7 @@ import {
 	useIsCodeFenceIncomplete,
 } from "streamdown";
 import type { ExtraProps } from "streamdown";
+import { useAppearance } from "@/components/settings/appearance";
 import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
@@ -142,6 +143,7 @@ function MermaidInline({ chart }: { chart: string }) {
 	const [svg, setSvg] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
+	const { resolvedMode } = useAppearance();
 	const overlay = useSessionMermaid();
 	const incomplete = useIsCodeFenceIncomplete();
 	// The font-parity cap (owner rule, 2026-09-19): the house CSS
@@ -166,7 +168,7 @@ function MermaidInline({ chart }: { chart: string }) {
 		let cancelled = false;
 		setSvg(null);
 		setError(null);
-		renderMermaid(chart)
+		renderMermaid(chart, resolvedMode)
 			.then((s) => {
 				if (!cancelled) setSvg(s);
 			})
@@ -176,7 +178,7 @@ function MermaidInline({ chart }: { chart: string }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [chart, attempt, incomplete]);
+	}, [chart, attempt, incomplete, resolvedMode]);
 
 	if (incomplete || (svg === null && error === null)) {
 		return (

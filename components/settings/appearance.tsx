@@ -6,10 +6,9 @@
  *
  * Why variables and not className swaps: every seam the settings touch was
  * built token-first (--font-prose, --lh-prose-size, --lh-ink-strong, …),
- * so application is setProperty and nothing re-renders. The ONE thing the
- * variables can't reach — the mode — is dark-only this wave (the light
- * palette is designed in the later design wave; <html class="dark"> is
- * static in app/layout.tsx).
+ * so application is setProperty. next-themes applies the light/dark class
+ * before paint and follows this browser's system preference. The server's
+ * appearance record remains the source of truth for explicit mode choices.
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -20,6 +19,7 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { ThemeProvider, useTheme } from "next-themes";
 import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
@@ -47,17 +47,17 @@ function raise(hex: string, add: number): string {
 	const n = hex.length === 4
 		? hex.slice(1).split("").map((c) => parseInt(c + c, 16))
 		: [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-	return `#${n.map((c) => Math.min(255, c + add).toString(16).padStart(2, "0")).join("")}`;
+	return `#${n.map((c) => Math.max(0, Math.min(255, c + add)).toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** The derived palette a chosen background implies (dark curve): background
  *  itself, the raised surfaces (card/popover/secondary/muted, +8), the
  *  accent (+22), the edges (border/input, +47), and primary-foreground
  *  (the inverted text on primary = the background's own color, as today). */
-export function derivedPalette(background: string): Record<string, string> {
+export function derivedPalette(background: string, mode: "light" | "dark" = "dark"): Record<string, string> {
 	const card = raise(background, 8);
-	const accent = raise(background, 22);
-	const border = raise(background, 47);
+	const accent = raise(background, mode === "light" ? -14 : 22);
+	const border = raise(background, mode === "light" ? -35 : 47);
 	return {
 		"--background": background,
 		"--card": card,
@@ -67,16 +67,16 @@ export function derivedPalette(background: string): Record<string, string> {
 		"--accent": accent,
 		"--border": border,
 		"--input": border,
-		"--primary-foreground": background,
+		"--primary-foreground": mode === "light" ? "#fffdf8" : background,
 	};
 }
 
 /** THE mapping: resolved appearance → the CSS variables to set on <html>.
  *  Absent entries = leave the factory stylesheet value in place. Pure —
  *  exported for tests. */
-export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
+export function appearanceVars(a: ReturnType<typeof resolveAppearance>, mode: "light" | "dark" = a.mode === "light" ? "light" : "dark"): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.background !== null) Object.assign(vars, derivedPalette(a.background));
+	if (a.background !== null) Object.assign(vars, derivedPalette(a.background, mode));
 	if (a.fontFamily !== null) {
 		vars["--font-prose"] = `"${a.fontFamily}", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
 	}
@@ -110,12 +110,14 @@ export function staleVarNames(
 interface AppearanceContextValue {
 	/** Resolved appearance; factory until the record arrives. */
 	appearance: ReturnType<typeof resolveAppearance>;
+	resolvedMode: "light" | "dark";
 	/** Called by the settings page after a successful section PUT. */
 	onAppearanceChange: (delta: AppearanceSettings | undefined) => void;
 }
 
 const AppearanceContext = createContext<AppearanceContextValue>({
 	appearance: resolveAppearance(undefined),
+	resolvedMode: "light",
 	onAppearanceChange: () => {},
 });
 
@@ -124,11 +126,21 @@ export function useAppearance() {
 }
 
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
+	return (
+		<ThemeProvider attribute="class" defaultTheme="system" storageKey="lh:theme" enableSystem disableTransitionOnChange>
+			<AppearanceState>{children}</AppearanceState>
+		</ThemeProvider>
+	);
+}
+
+function AppearanceState({ children }: { children: React.ReactNode }) {
+	const { resolvedTheme, setTheme } = useTheme();
+	const resolvedMode: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
 	const appliedRef = useRef<string>("");
 
 	// The vars apply on every change — stringified as the change signal.
-	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
+	const vars = useMemo(() => appearanceVars(resolveAppearance(delta), resolvedMode), [delta, resolvedMode]);
 	const key = useMemo(() => JSON.stringify(vars), [vars]);
 	// REMOVAL is half the job (owner repro, fix wave): a later write that
 	// OMITS a var (empty field = factory, serif toggle back on) must clear
@@ -163,23 +175,24 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 				// slice is unknown-shaped here, so it goes through the same
 				// resolve (absent/invalid fields = factory anyway).
 				const appearance = body.settings?.appearance;
-				setDelta(
-					appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined,
-				);
+				const next = appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined;
+				setDelta(next);
+				setTheme(resolveAppearance(next).mode);
 			})
 			.catch(() => {/* settings stay factory — not worth a crash */});
 		return () => {
 			alive = false;
 		};
-	}, []);
+	}, [setTheme]);
 
 	const onAppearanceChange = useCallback((next: AppearanceSettings | undefined) => {
 		setDelta(next);
-	}, []);
+		setTheme(resolveAppearance(next).mode);
+	}, [setTheme]);
 
-	const value = useMemo(
-		() => ({ appearance: resolveAppearance(delta), onAppearanceChange }),
-		[delta, onAppearanceChange],
+	const value = useMemo<AppearanceContextValue>(
+		() => ({ appearance: resolveAppearance(delta), resolvedMode, onAppearanceChange }),
+		[delta, resolvedMode, onAppearanceChange],
 	);
 	return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;
 }

@@ -98,6 +98,11 @@ describe("parseAgentSettingsBody", () => {
 });
 
 describe("parseAppearanceSettingsBody", () => {
+	it("accepts system mode without discarding other appearance preferences", () => {
+		assert.deepEqual(parseAppearanceSettingsBody({ mode: "system", proseFontSize: 18 }), {
+			ok: true, settings: { mode: "system", proseFontSize: 18 },
+		});
+	});
 	it("parses every field; hex-or-null colors; clamps happen at sanitize, rejects here", () => {
 		const r = parseAppearanceSettingsBody({
 			mode: "light",

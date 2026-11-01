@@ -113,6 +113,7 @@ export interface CanvasCluster {
 /** Theme colors, resolved to #rrggbb by the caller (canvas wants hex,
  *  and the renderer must not read CSS itself). */
 export interface CanvasColors {
+	light?: boolean;
 	node: string;
 	edge: string;
 	label: string;
@@ -753,6 +754,13 @@ export class GraphCanvasRenderer {
 	}
 
 	// ── Public API ──
+
+	/** Repaint appearance without rebuilding physics or losing a pending drag. */
+	setColors(colors: CanvasColors): void {
+		if (!this.data) return;
+		this.data.colors = colors;
+		this.markDirty();
+	}
 
 	setData(data: CanvasData): void {
 		this.data = data;
@@ -1746,7 +1754,7 @@ export class GraphCanvasRenderer {
 			const lineH = (settings.clusterLabelSize * REGION_LABEL_LINE_HEIGHT) / k;
 			for (const rm of this.regionMeta) {
 				if (!rm.lines) continue;
-				ctx.fillStyle = `hsla(${rm.hue}, 55%, 78%, 0.85)`;
+				ctx.fillStyle = `hsla(${rm.hue}, ${data.colors.light ? "42%, 32%, 1" : "55%, 78%, 0.85"})`;
 				const firstOffset = (-(rm.lines.length - 1) / 2) * lineH;
 				for (let i = 0; i < rm.lines.length; i++) {
 					ctx.fillText(rm.lines[i]!, rm.cx, rm.cy + firstOffset + i * lineH);

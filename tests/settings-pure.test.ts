@@ -26,7 +26,7 @@ import { setupStage } from "../components/setup-dialog.tsx";
 describe("resolveAppearance — delta over factory", () => {
 	it("absent everything = the factory view", () => {
 		const a = resolveAppearance(undefined);
-		assert.equal(a.mode, "dark");
+		assert.equal(a.mode, "system");
 		assert.equal(a.background, null);
 		assert.equal(a.fontFamily, null);
 		assert.equal(a.proseFontSize, 16);
@@ -43,6 +43,12 @@ describe("resolveAppearance — delta over factory", () => {
 });
 
 describe("derivedPalette — the dark curve keeps today's relationships", () => {
+	it("light custom backgrounds retain distinct surfaces and darken separators", () => {
+		const palette = derivedPalette("#f6f3ec", "light");
+		assert.notEqual(palette["--card"], palette["--background"]);
+		assert.ok(parseInt(palette["--border"]!.slice(1), 16) < parseInt(palette["--background"]!.slice(1), 16));
+		assert.equal(derivedPalette("#000", "light")["--border"], "#000000", "channels cannot underflow");
+	});
 	it("the factory background reproduces today's palette EXACTLY", () => {
 		assert.deepEqual(derivedPalette("#141414"), {
 			"--background": "#141414",

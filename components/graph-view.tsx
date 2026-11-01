@@ -1,5 +1,7 @@
 "use client";
 
+import { useAppearance } from "@/components/settings/appearance";
+
 /**
  * The home knowledge-graph view (W4; vision §1 "Rendering (DECIDED)").
  *
@@ -991,6 +993,7 @@ export function GraphView({
 	onPracticeSelectionChange?: (nodes: { id: string; name: string; statement: string }[]) => void;
 	onChainSelectClose?: () => void;
 }) {
+	const { appearance, resolvedMode } = useAppearance();
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const cardRef = useRef<HTMLDivElement | null>(null);
@@ -1453,6 +1456,7 @@ export function GraphView({
 			impLinks: snapshot.impLinks,
 			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
 			colors: {
+				light: document.documentElement.classList.contains("light"),
 				node: tokenHex(NODE_COLOR_TOKEN),
 				edge: tokenHex("--ring"),
 				label: tokenHex("--muted-foreground"),
@@ -1462,6 +1466,19 @@ export function GraphView({
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
 	}, [snapshot, isEmpty]);
+
+	// Read tokens after AppearanceProvider has applied its CSS variables.
+	// Color changes must not rebuild physics or rewind dragged positions.
+	useEffect(() => {
+		const frame = requestAnimationFrame(() => rendererRef.current?.setColors({
+			light: resolvedMode === "light",
+			node: tokenHex(NODE_COLOR_TOKEN),
+			edge: tokenHex("--ring"),
+			label: tokenHex("--muted-foreground"),
+			hoverText: tokenHex("--foreground"),
+		}));
+		return () => cancelAnimationFrame(frame);
+	}, [snapshot, isEmpty, appearance, resolvedMode]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).

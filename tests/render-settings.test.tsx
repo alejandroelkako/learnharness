@@ -226,17 +226,15 @@ describe("KeysSection (thin SSR)", () => {
 });
 
 describe("AppearanceSection (thin SSR)", () => {
-	it("mode is rendered DISABLED — dark-only this wave, no lying control", () => {
+	it("offers system, light and dark appearance modes", () => {
 		const html = renderToStaticMarkup(<AppearanceSection appearance={undefined} onSectionChange={() => {}} />);
-		assert.ok(tagOf(html, "select-mode").includes("disabled"), "mode select disabled");
-		assert.ok(html.includes("Coming soon"));
-		// The whole row dims, graph-view style (the control never adds its own).
-		assert.ok(tagOf(html, "row-mode").includes("opacity-40"), "mode row dims whole");
+		assert.ok(!tagOf(html, "select-mode").includes("disabled"));
+		for (const mode of ["system", "light", "dark"]) assert.ok(html.includes(`value="${mode}"`));
 	});
 
 	it("hex inputs carry the factory placeholders; prose size resolves against the factory", () => {
 		const html = renderToStaticMarkup(<AppearanceSection appearance={undefined} onSectionChange={() => {}} />);
-		assert.ok(html.includes(`placeholder="#141414"`));
+		assert.ok(html.includes(`placeholder="#f6f3ec"`));
 		// The reading font is the searchable dropdown now (font-menu
 		// wave): its trigger shows the factory family; the emphasis
 		// inks' empty state is "same as text" (the old hexes died with
