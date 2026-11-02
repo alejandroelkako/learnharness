@@ -1,5 +1,5 @@
 /**
- * THE VAULT SYNC — manual "Sync vault" over <vault>/Concepts/*.md.
+ * THE VAULT SYNC — manual "Sync vault" over Markdown notes recursively under <vault>/Concepts/.
  *
  * Pins: the pure plan (import / unchanged / re-extract / rename / vanished
  * left alone), staleness (only outdated vault versions → stale; a chat, a
@@ -243,6 +243,33 @@ describe("createVaultSync (temp vault, fake notes door)", () => {
 		assert.ok(fourth.ok);
 		assert.equal(fourth.summary.unchanged, 1, "a deleted note is left alone");
 		assert.equal(t.calls.length, 3);
+	});
+
+	it("syncs nested concept notes with distinct relative paths and recognizes moves into folders", async () => {
+		const t = setup(ok);
+		t.write("A.md", "alpha");
+		assert.ok((await t.sync.sync()).ok);
+		const sourceId = t.calls[0]!.sourceId;
+		fs.mkdirSync(path.join(t.vaultDir, "Concepts", "Analysis", "Continuity"), { recursive: true });
+		fs.mkdirSync(path.join(t.vaultDir, "Concepts", "Algebra"));
+		fs.renameSync(path.join(t.vaultDir, "Concepts", "A.md"), path.join(t.vaultDir, "Concepts", "Analysis", "A.md"));
+		t.write("Analysis/Continuity/B.md", "continuity");
+		t.write("Algebra/B.md", "algebra");
+		t.write("Analysis/ignored.txt", "not markdown");
+		fs.writeFileSync(path.join(t.vaultDir, "outside.md"), "outside Concepts");
+
+		const outcome = await t.sync.sync();
+		assert.ok(outcome.ok);
+		assert.deepEqual(outcome.summary.imported, ["Concepts/Algebra/B.md", "Concepts/Analysis/Continuity/B.md"]);
+		assert.deepEqual(outcome.summary.renamed, [{ from: "Concepts/A.md", to: "Concepts/Analysis/A.md" }]);
+		assert.equal(t.calls.length, 3, "moving the original note does not re-extract it");
+		assert.equal(t.mem.sources.get(sourceId!)?.filePath, "Concepts/Analysis/A.md");
+		assert.equal(t.calls.find((c) => c.filePath === "Concepts/Analysis/Continuity/B.md")?.text, "continuity");
+
+		const repeat = await t.sync.sync();
+		assert.ok(repeat.ok);
+		assert.equal(repeat.summary.unchanged, 3);
+		assert.equal(t.calls.length, 3, "nested notes are skipped on the next sync");
 	});
 
 	it("a failed import records nothing, so the next sync retries it", async () => {

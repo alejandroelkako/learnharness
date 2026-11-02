@@ -1,6 +1,6 @@
 /**
  * The vault sync — the IO half (core/vault-sync.ts is the pure half): list
- * <vault>/Concepts/*.md, hash each file, plan against the vault-sync
+ * Markdown notes recursively under <vault>/Concepts/, hash each file, plan against the vault-sync
  * ledger, then run the plan. Manual only (POST /api/graph/vault-sync); one
  * sync at a time.
  *
@@ -77,23 +77,24 @@ function newVaultSourceId(relPath: string, contentHash: string): string {
 }
 
 function listConceptNotes(vaultDir: string): Array<VaultFile & { text: string }> {
-	const dir = path.join(vaultDir, VAULT_SYNC_FOLDER);
-	let names: string[];
-	try {
-		names = fs.readdirSync(dir);
-	} catch {
-		return [];
-	}
-	return names
-		.filter((name) => name.endsWith(".md") && fs.statSync(path.join(dir, name)).isFile())
-		.map((name) => {
-			const text = fs.readFileSync(path.join(dir, name), "utf-8");
-			return {
-				relPath: `${VAULT_SYNC_FOLDER}/${name}`,
-				contentHash: crypto.createHash("sha256").update(text).digest("hex"),
-				text,
-			};
-		});
+	const files: Array<VaultFile & { text: string }> = [];
+	const walk = (dir: string) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const filePath = path.join(dir, entry.name);
+			if (entry.isDirectory()) {
+				walk(filePath);
+			} else if (entry.isFile() && entry.name.endsWith(".md")) {
+				const text = fs.readFileSync(filePath, "utf-8");
+				files.push({
+					relPath: path.relative(vaultDir, filePath).split(path.sep).join("/"),
+					contentHash: crypto.createHash("sha256").update(text).digest("hex"),
+					text,
+				});
+			}
+		}
+	};
+	walk(path.join(vaultDir, VAULT_SYNC_FOLDER));
+	return files;
 }
 
 export function createVaultSync(deps: VaultSyncDeps): { sync(): Promise<VaultSyncOutcome> } {
